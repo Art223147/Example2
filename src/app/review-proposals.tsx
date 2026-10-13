@@ -2,13 +2,13 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import Toast from "../components/Toast"; // Import Toast
 import { apiCall, User } from "../constants/api";
 
 interface Proposal {
@@ -26,12 +26,27 @@ interface Proposal {
 export default function ReviewProposalsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const account: User = JSON.parse(params.user as string);
+  // Safe parsing
+  const account: User | null = params.user
+    ? JSON.parse(params.user as string)
+    : null;
 
   const [proposals, setProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Toast State
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastType, setToastType] = useState<"success" | "error">("success");
+
+  const showToast = (message: string, type: "success" | "error") => {
+    setToastMessage(message);
+    setToastType(type);
+    setToastVisible(true);
+  };
+
   const loadProposals = async () => {
+    if (!account) return;
     const result = await apiCall("get_proposals.php", {
       user_id: account.id,
       role_id: account.role_id,
@@ -44,42 +59,61 @@ export default function ReviewProposalsScreen() {
     loadProposals();
   }, []);
 
-  const handleReview = (
+  const handleReview = async (
     proposal: Proposal,
     status: "Approved" | "Rejected",
   ) => {
-    Alert.alert(
-      `${status} Proposal`,
-      `Are you sure you want to ${status.toLowerCase()} "${proposal.project_name}"?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Confirm",
-          onPress: async () => {
-            const result = await apiCall("review_proposal.php", {
-              proposal_id: proposal.proposal_id,
-              status,
-              admin_remarks: `${status} by Admin`,
-              admin_id: account.id,
-            });
-            if (result.success) {
-              Alert.alert("Success", result.message);
-              loadProposals();
-            } else {
-              Alert.alert("Error", result.message);
-            }
-          },
-        },
-      ],
-    );
+    if (!account) return;
+
+    // Change the remark text here!
+    const remark =
+      status === "Approved" ? "Approved for funding" : "Rejected by Admin";
+
+    try {
+      const result = await apiCall("review_proposal.php", {
+        proposal_id: proposal.proposal_id,
+        status: status,
+        admin_remarks: remark,
+        admin_id: account.id,
+      });
+
+      if (result.success) {
+        showToast(
+          result.message || `Proposal ${status} successfully!`,
+          "success",
+        );
+        loadProposals(); // Refresh the list
+      } else {
+        showToast(result.message || "An error occurred.", "error");
+      }
+    } catch (error) {
+      showToast("Network error. Please try again.", "error");
+    }
   };
 
   return (
     <View style={styles.container}>
+      {/* Toast Notification */}
+      <Toast
+        message={toastMessage}
+        type={toastType}
+        visible={toastVisible}
+        onHide={() => setToastVisible(false)}
+      />
+
       <ScrollView contentContainerStyle={styles.content}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.back()}
+          onPress={() => {
+            if (account) {
+              router.replace({
+                pathname: "/dashboard",
+                params: { user: JSON.stringify(account) },
+              });
+            } else {
+              router.replace("/");
+            }
+          }}
         >
           <Text style={styles.backText}>← Back to Dashboard</Text>
         </TouchableOpacity>

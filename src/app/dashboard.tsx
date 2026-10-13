@@ -2,7 +2,6 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,13 +13,19 @@ import { apiCall, Project, User } from "../constants/api";
 export default function DashboardScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const account: User = JSON.parse(params.user as string);
+
+  // ✅ FIX: Safe parsing to prevent crashes
+  const account: User | null = params.user
+    ? JSON.parse(params.user as string)
+    : null;
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [totalUsers, setTotalUsers] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const loadData = async () => {
+    if (!account) return;
     try {
       const projResult = await apiCall("get_projects.php");
       if (projResult.success && projResult.projects) {
@@ -43,32 +48,21 @@ export default function DashboardScreen() {
   useFocusEffect(
     React.useCallback(() => {
       loadData();
-    }, []),
+    }, [account]),
   );
 
-  const handleLogout = () => {
-    Alert.alert(
-      "Logout Confirmation",
-      "Are you sure you want to logout/signout?",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Yes",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              await apiCall("logout.php", { user_id: account.id });
-            } catch (e) {
-              console.log("Logout log failed", e);
-            }
-            router.replace("/");
-          },
-        },
-      ],
-    );
+  // ✅ FIX: Direct logout function (No Alert.alert)
+  const handleLogout = async () => {
+    if (!account) return;
+    try {
+      await apiCall("logout.php", { user_id: account.id });
+    } catch (e) {
+      console.log("Logout log failed", e);
+    }
+    router.replace("/");
   };
 
-  if (loading) {
+  if (loading || !account) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2563EB" />
@@ -119,10 +113,21 @@ export default function DashboardScreen() {
               <Text style={styles.number}>{totalUsers}</Text>
               <Text style={styles.cardText}>Registered Users</Text>
             </View>
-
             <Text style={styles.sectionTitle}>Recent Projects</Text>
             {projects.slice(0, 5).map((p) => (
-              <View style={styles.projectCard} key={p.project_id}>
+              <TouchableOpacity
+                style={styles.projectCard}
+                key={p.project_id}
+                onPress={() =>
+                  router.push({
+                    pathname: "/project-details",
+                    params: {
+                      user: JSON.stringify(account),
+                      project: JSON.stringify(p),
+                    },
+                  })
+                }
+              >
                 <View style={{ flex: 1 }}>
                   <Text style={styles.projectTitle}>{p.project_name}</Text>
                   <Text style={styles.projectLocation}>{p.location}</Text>
@@ -138,9 +143,8 @@ export default function DashboardScreen() {
                 >
                   {p.status}
                 </Text>
-              </View>
+              </TouchableOpacity>
             ))}
-
             <TouchableOpacity
               style={styles.manageButton}
               onPress={() =>
@@ -154,7 +158,6 @@ export default function DashboardScreen() {
                 Manage Community Projects
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={styles.userButton}
               onPress={() =>
@@ -166,7 +169,6 @@ export default function DashboardScreen() {
             >
               <Text style={styles.manageButtonText}>User Management</Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={[styles.userButton, { backgroundColor: "#7C3AED" }]}
               onPress={() =>
@@ -178,7 +180,6 @@ export default function DashboardScreen() {
             >
               <Text style={styles.manageButtonText}>View Log Trails</Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={[styles.userButton, { backgroundColor: "#F59E0B" }]}
               onPress={() =>
@@ -199,10 +200,21 @@ export default function DashboardScreen() {
               <Text style={styles.number}>{projects.length}</Text>
               <Text style={styles.cardText}>Available Projects</Text>
             </View>
-
             <Text style={styles.sectionTitle}>Community Projects</Text>
             {projects.map((p) => (
-              <View style={styles.projectCardVertical} key={p.project_id}>
+              <TouchableOpacity
+                key={p.project_id}
+                style={styles.projectCardVertical}
+                onPress={() =>
+                  router.push({
+                    pathname: "/project-details",
+                    params: {
+                      user: JSON.stringify(account),
+                      project: JSON.stringify(p), // Pass the whole project object!
+                    },
+                  })
+                }
+              >
                 <Text style={styles.projectTitle}>{p.project_name}</Text>
                 <Text style={styles.projectLocation}>
                   Location: {p.location}
@@ -226,7 +238,7 @@ export default function DashboardScreen() {
                     ₱{Number(p.budget).toLocaleString()}
                   </Text>
                 </View>
-              </View>
+              </TouchableOpacity>
             ))}
             <TouchableOpacity
               style={[styles.userButton, { backgroundColor: "#10B981" }]}
@@ -244,9 +256,35 @@ export default function DashboardScreen() {
           </>
         )}
 
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Text style={styles.logoutText}>Sign Out</Text>
-        </TouchableOpacity>
+        {/* ✅ FIX: In-app Logout Confirmation (No Alert.alert) */}
+        {showLogoutConfirm ? (
+          <View style={styles.logoutConfirmContainer}>
+            <Text style={styles.logoutConfirmText}>
+              Are you sure you want to sign out?
+            </Text>
+            <View style={styles.logoutConfirmButtons}>
+              <TouchableOpacity
+                style={styles.confirmYesBtn}
+                onPress={handleLogout}
+              >
+                <Text style={styles.confirmYesText}>Yes, Sign Out</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmNoBtn}
+                onPress={() => setShowLogoutConfirm(false)}
+              >
+                <Text style={styles.confirmNoText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={styles.logoutButton}
+            onPress={() => setShowLogoutConfirm(true)}
+          >
+            <Text style={styles.logoutText}>Sign Out</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
     </View>
   );
@@ -386,4 +424,37 @@ const styles = StyleSheet.create({
     backgroundColor: "white",
   },
   logoutText: { color: "#DC2626", fontSize: 19, fontWeight: "bold" },
+  // New styles for inline logout confirmation
+  logoutConfirmContainer: {
+    backgroundColor: "#FEF2F2",
+    borderRadius: 15,
+    padding: 20,
+    marginTop: 20,
+    marginBottom: 30,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    alignItems: "center",
+  },
+  logoutConfirmText: {
+    color: "#991B1B",
+    fontSize: 16,
+    fontWeight: "bold",
+    marginBottom: 15,
+    textAlign: "center",
+  },
+  logoutConfirmButtons: { flexDirection: "row", gap: 15 },
+  confirmYesBtn: {
+    backgroundColor: "#DC2626",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+  },
+  confirmYesText: { color: "white", fontWeight: "bold", fontSize: 14 },
+  confirmNoBtn: {
+    backgroundColor: "#E5E7EB",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+  },
+  confirmNoText: { color: "#4B5563", fontWeight: "bold", fontSize: 14 },
 });

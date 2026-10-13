@@ -1,21 +1,25 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import Toast from "../components/Toast";
 import { apiCall, User } from "../constants/api";
 
 export default function SubmitProposalScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const account: User = JSON.parse(params.user as string);
+
+  // ✅ FIX: Safely parse the user object (prevents the TypeScript error)
+  const account: User | null = params.user
+    ? JSON.parse(params.user as string)
+    : null;
 
   const [projectName, setProjectName] = useState("");
   const [location, setLocation] = useState("");
@@ -23,37 +27,81 @@ export default function SubmitProposalScreen() {
   const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
 
+  // Toast state
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastType, setToastType] = useState<"success" | "error">("success");
+
+  const showToast = (message: string, type: "success" | "error") => {
+    setToastMessage(message);
+    setToastType(type);
+    setToastVisible(true);
+  };
+
   const handleSubmit = async () => {
+    if (!account) {
+      showToast("User session not found. Please log in again.", "error");
+      return;
+    }
+
     if (!projectName.trim() || !location.trim()) {
-      Alert.alert("Required Fields", "Project name and location are required.");
+      showToast("Project name and location are required.", "error");
       return;
     }
 
     setLoading(true);
-    const result = await apiCall("submit_proposal.php", {
-      project_name: projectName.trim(),
-      description: description.trim(),
-      location: location.trim(),
-      budget: Number(budget) || 0,
-      proposed_by: account.id,
-    });
-    setLoading(false);
+    try {
+      const result = await apiCall("submit_proposal.php", {
+        project_name: projectName.trim(),
+        description: description.trim(),
+        location: location.trim(),
+        budget: Number(budget) || 0,
+        proposed_by: account.id,
+      });
 
-    if (result.success) {
-      Alert.alert("Success", result.message, [
-        { text: "OK", onPress: () => router.back() },
-      ]);
-    } else {
-      Alert.alert("Error", result.message);
+      if (result.success) {
+        showToast(
+          result.message || "Proposal submitted successfully!",
+          "success",
+        );
+        setProjectName("");
+        setLocation("");
+        setBudget("");
+        setDescription("");
+        setTimeout(() => router.back(), 2000);
+      } else {
+        showToast(result.message || "An error occurred.", "error");
+      }
+    } catch (error) {
+      showToast("Network error. Please try again.", "error");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <View style={styles.container}>
+      {/* Toast notification */}
+      <Toast
+        message={toastMessage}
+        type={toastType}
+        visible={toastVisible}
+        onHide={() => setToastVisible(false)}
+      />
+
       <ScrollView contentContainerStyle={styles.content}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => router.back()}
+          onPress={() => {
+            if (account) {
+              router.replace({
+                pathname: "/dashboard",
+                params: { user: JSON.stringify(account) },
+              });
+            } else {
+              router.replace("/");
+            }
+          }}
         >
           <Text style={styles.backText}>← Back to Dashboard</Text>
         </TouchableOpacity>
